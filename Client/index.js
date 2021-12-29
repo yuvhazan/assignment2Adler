@@ -5,13 +5,12 @@ const operationsList = []
 const socketList = []
 let numOfSockets = 1
 let myTimeStamp = 0
-const operationHistory = []
+let operationHistory = []
 const server = new net.Server()
 
 const fileName = process.argv[2]
 const data = fs.readFileSync(fileName).toString()
 const lines = data.split('\r\n').filter((str) => str.length > 0)
-console.log(lines)
 
 const myId = lines[0]
 const port = lines[1]
@@ -19,8 +18,6 @@ let stringReplica = lines[2]
 const configurations = lines.slice(3)
 const operations = configurations.filter(line => line.startsWith("delete") || line.startsWith('insert'))
 const clients = configurations.filter(line => !(line.startsWith("delete") || line.startsWith('insert')))
-console.log(clients)
-console.log(operations)
 operations.forEach(operation => operationsList.push(operation))
 clients.forEach(client => {
     const clientConfiguration = client.split(' ')
@@ -31,40 +28,72 @@ clients.forEach(client => {
     })
 })
 
-const mergeAlgorithm = (action, timeStamp, id) => {
+const log = (msg) => {
+    console.log(`LOGGING INFO: ${msg}`)
+}
+const debug = (msg) => {
+    console.log(`DEBUG: ${msg}`)
+}
 
+const mergeAlgorithm = (action, timeStamp, id) => {
+    let index = operationHistory.findIndex(operation => operation.timeStamp >= timeStamp)
+    while (operationHistory[index].timeStamp === timeStamp) {
+        if (id > operationHistory[index].id) {
+            index++
+        }
+        else break
+    }
+    stringReplica = operationHistory[index - 1].updatedString
+    const operationsToPerform = [{
+        operation: action,
+        timeStamp: timeStamp,
+        updatedString: stringReplica,
+        id: id
+    }].concat(operationHistory.slice(index))
+    operationHistory = operationHistory.slice(0, index)
+    log(`Client ${myId} started merging, from time stamp ${timeStamp}, on ${stringReplica}`)
+    operationsToPerform.forEach(op => {
+        applyOperation(op.operation)
+        log(`operation (${op.operation}, ${op.timeStamp}), string: ${stringReplica}`)
+        op.updatedString = stringReplica
+        operationHistory.push(op)
+    })
+    log(`Client ${myId} ended merging with string ${stringReplica}, on timestamp ${operationHistory[operationHistory.length - 1].timeStamp}
+`)
 }
 
 const updateStringReplica = (newString) => {
-    console.log(`before ${stringReplica}`)
+    log(`before change ${stringReplica}`)
     stringReplica = newString
-    console.log(`after ${stringReplica}`)
+    log(`after change ${stringReplica}`)
 }
 
 const handleData = (socket, data) => {
+    const _handleData = (operation) => {
+        const parsedData = JSON.parse(operation)
+        const timeStamp = parsedData['myTimeStamp']
+        const action = parsedData['operation']
+        const id = parsedData['myId']
+        log(`Client ${myId} received an update operation (${action}, ${timeStamp}) from client ${id}`)
+        myTimeStamp = Math.max(myTimeStamp, timeStamp)
+        myTimeStamp++
+        const lastOperation = operationHistory[operationHistory.length - 1]
+        if (lastOperation !== undefined &&
+            (timeStamp < lastOperation.timeStamp ||
+                (timeStamp === lastOperation.timeStamp && lastOperation.id > id))) {
+            mergeAlgorithm(action, timeStamp, id)
+        } else {
+            applyOperation(action)
+            operationHistory.push({operation: action, timeStamp: timeStamp, updatedString: stringReplica, id: id})
+        }
+    }
+
     if (data.toString().startsWith("goodbye")) {
         handleGoodbye()
         return
     }
-    const parsedData = JSON.parse(data)
-    const timeStamp = parsedData['myTimeStamp']
-    const action = parsedData['operation']
-    const id = parsedData['myId']
-    console.log(JSON.parse(data))
-    console.log(`myTimeStamp = ${myTimeStamp}`)
-    console.log(`timeStamp = ${timeStamp}`)
-    myTimeStamp = Math.max(myTimeStamp, timeStamp)
-    myTimeStamp++
-    const lastOperation = operationHistory[operationHistory.length-1]
-    if (lastOperation !== undefined &&
-        timeStamp < lastOperation.timeStamp ||
-        (timeStamp === lastOperation.timeStamp && myId < id)) {
-        mergeAlgorithm(action, timeStamp, id)
-    } else {
-        console.log('action', action)
-        applyOperation(action)
-        operationHistory.push({operation: action, timeStamp: timeStamp, updatedString: stringReplica})
-    }
+    data = data.toString().split('\n').filter((str) => str.length > 0)
+    data.map(_handleData)
 }
 
 const createServer = (server) => {
@@ -74,9 +103,7 @@ const createServer = (server) => {
         numOfSockets++;
         socketList.push(socket)
         console.log(`a new connection from socket ${socket}`)
-
         socket.on('data', (data) => {
-            console.log(`Data received from client: ${data.toString()}`)
             handleData(socket, data)
         })
 
@@ -92,11 +119,8 @@ const createServer = (server) => {
 }
 
 const applyOperation = (operation) => {
-    console.log(`operation = ${operation}`)
     const action = operation !== undefined ? operation.split(' ') : ''
     const op = action[0]
-
-    console.log(`op = ${op}`)
 
     switch (op) {
         case "insert": {
@@ -124,14 +148,14 @@ const applyOperation = (operation) => {
 const eventLoop = async () => {
     const handleOperation = async (operation) => {
         applyOperation(operation)
-        console.log(`myTimeStamp = ${myTimeStamp}`)
         myTimeStamp++
-        operationHistory.push({operation: operation, timeStamp: myTimeStamp, updatedString: stringReplica})
+        operationHistory.push({operation: operation, timeStamp: myTimeStamp, updatedString: stringReplica, id: myId})
         const data = {operation, myTimeStamp, myId}
-        socketList.forEach(socket => socket.write(Buffer.from(JSON.stringify(data))))
+
+        socketList.forEach(socket => socket.write(Buffer.from(JSON.stringify(data) + "\n")))
     }
 
-    operationsList.forEach(operation => setTimeout(() => handleOperation(operation), 1000))
+    operationsList.forEach(operation => setTimeout(() => handleOperation(operation), Math.random() * 10000))
 }
 
 const handleGoodbye = () => {
@@ -139,6 +163,8 @@ const handleGoodbye = () => {
     if (numOfSockets === 0) {
         socketList.forEach(socket => socket.end())
         console.log(`final string: ${stringReplica}`)
+        log(`Client ${myId} is exiting`)
+        process.exit(0)
     }
 }
 
@@ -154,7 +180,8 @@ createServer(server)
 
 clientList.forEach(({id, host, port}) => {
     if (myId < id) {
-        const socket = net.createConnection(port, host, () => console.log(`Connected to client ${host}:${port}`))
+        let socket = undefined;
+        socket = net.createConnection(port, host, () => console.log(`Connected to client ${host}:${port}`))
         socket.on('data', (data) => {
             handleData(socket, data)
         })

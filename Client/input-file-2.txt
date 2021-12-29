@@ -8,4 +8,90 @@ abc
 insert e
 delete 2
 insert y 2
+insert f
+delete 3
+insert x 3
+insert f
+delete 3
+insert x 3
+insert f
+delete 3
+insert x 3
+insert f
+delete 3
+insert x 3
+insert d
+delete 1
+insert z 1
+
+insert d
+delete 1
+insert z 1
+
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert e
+delete 2
+insert y 2
+insert f
+delete 3
+insert x 3
+insert f
+delete 3
+insert x 3
+insert f
+delete 3
+insert x 3
+insert f
+delete 3
+insert x 3
+insert d
+delete 1
+insert z 1
+
+insert d
+delete 1
+insert z 1
+
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+insert d
+delete 1
+insert z 1
+
 
