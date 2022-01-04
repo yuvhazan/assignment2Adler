@@ -10,11 +10,12 @@ const server = new net.Server()
 
 const fileName = process.argv[2]
 const data = fs.readFileSync(fileName).toString()
-const lines = data.split('\r\n').filter((str) => str.length > 0)
+const lines = data.split('\n').filter((str) => str.length > 0)
 
 const myId = lines[0]
 const port = lines[1]
 let stringReplica = lines[2]
+const originString = stringReplica
 const configurations = lines.slice(3)
 const operations = configurations.filter(line => line.startsWith("delete") || line.startsWith('insert'))
 const clients = configurations.filter(line => !(line.startsWith("delete") || line.startsWith('insert')))
@@ -43,7 +44,8 @@ const mergeAlgorithm = (action, timeStamp, id) => {
         }
         else break
     }
-    stringReplica = operationHistory[index - 1].updatedString
+    stringReplica = index !== 0 ? operationHistory[index - 1].updatedString : originString
+
     const operationsToPerform = [{
         operation: action,
         timeStamp: timeStamp,
@@ -71,9 +73,9 @@ const updateStringReplica = (newString) => {
 const handleData = (socket, data) => {
     const _handleData = (operation) => {
         const parsedData = JSON.parse(operation)
-        const timeStamp = parsedData['myTimeStamp']
+        const timeStamp = parsedData['timeStamp']
         const action = parsedData['operation']
-        const id = parsedData['myId']
+        const id = parsedData['id']
         log(`Client ${myId} received an update operation (${action}, ${timeStamp}) from client ${id}`)
         myTimeStamp = Math.max(myTimeStamp, timeStamp)
         myTimeStamp++
@@ -103,6 +105,12 @@ const createServer = (server) => {
         numOfSockets++;
         socketList.push(socket)
         console.log(`a new connection from socket ${socket}`)
+        operationHistory.forEach(({operation, timeStamp, stringReplica, id}) => {
+            if(id === myId){
+                const data = {operation, timeStamp, id}
+                socket.write(Buffer.from(JSON.stringify(data) + "\n"))
+            }
+        })
         socket.on('data', (data) => {
             handleData(socket, data)
         })
@@ -149,8 +157,10 @@ const eventLoop = async () => {
     const handleOperation = async (operation) => {
         applyOperation(operation)
         myTimeStamp++
-        operationHistory.push({operation: operation, timeStamp: myTimeStamp, updatedString: stringReplica, id: myId})
-        const data = {operation, myTimeStamp, myId}
+        const timeStamp = myTimeStamp
+        const id = myId
+        operationHistory.push({operation: operation, timeStamp: timeStamp, updatedString: stringReplica, id: id})
+        const data = {operation, timeStamp, id}
 
         socketList.forEach(socket => socket.write(Buffer.from(JSON.stringify(data) + "\n")))
     }
@@ -196,4 +206,4 @@ clientList.forEach(({id, host, port}) => {
 
 setTimeout(eventLoop, 10000)
 
-setTimeout(goodbye, 20000)
+setTimeout(goodbye, 30000)
