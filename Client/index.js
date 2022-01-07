@@ -39,12 +39,11 @@ let maxId = myId
 let minId = myId
 
 const checkMinMaxId = (client) => {
-    maxId = client.id ? client.id > maxId : maxId
-    minId = client.id ? client.id < minId : minId
+    maxId = client.id > maxId ? client.id  : maxId
+    minId = client.id < minId ? client.id  : minId
 }
 
 clientList.forEach(checkMinMaxId)
-
 const imMax = maxId === myId
 let maxSocket = null
 
@@ -85,8 +84,6 @@ const writeGoodbye = (socket) => {
 const applyOperation = (operation) => {
     const action = operation !== undefined ? operation.split(' ') : ''
     const op = action[0]
-    debug('in apply operation')
-    console.log(operation)
 
     switch (op) {
         case "insert": {
@@ -113,7 +110,6 @@ const applyOperation = (operation) => {
 
 const eventLoop = async () => {
     const handleOperation = async (operation) => {
-        console.log(operation)
         applyOperation(operation)
         finishedOperations++
         if(finishedOperations === numOfOperations){
@@ -128,9 +124,7 @@ const eventLoop = async () => {
     }
 
     let finishedOperations = 0
-    console.log(operationsList)
     operationsList.forEach(operation => {
-        console.log(operation)
         setTimeout(() => handleOperation(operation), Math.random() * 10000)
     })
 }
@@ -154,9 +148,6 @@ const mergeAlgorithm = (action, timeStamp, id) => {
     operationHistory = operationHistory.slice(0, index)
     log(`Client ${myId} started merging, from time stamp ${timeStamp}, on ${stringReplica}`)
     operationsToPerform.forEach(op => {
-        debug('in merge algorithm')
-        console.log(op)
-        debug('merge finish finish')
         applyOperation(op.operation)
         log(`operation (${op.operation}, ${op.timeStamp}), string: ${stringReplica}`)
         op.updatedString = stringReplica
@@ -178,9 +169,6 @@ const handleData = (socket, data) => {
         const timeStamp = parsedData['timeStamp']
         const action = parsedData['operation']
         const id = parsedData['id']
-        debug('before')
-        console.log(parsedData)
-        console.log(data.toString())
         log(`Client ${myId} received an update operation (${action}, ${timeStamp}) from client ${id}`)
         myTimeStamp = Math.max(myTimeStamp, timeStamp)
         myTimeStamp++
@@ -213,7 +201,7 @@ const handleData = (socket, data) => {
     data.map(_handleData)
 }
 
-const handleEnd = () => {
+const handleEnd = (socket) => {
     console.log(`Closing connection with client ${socket}`)
 }
 
@@ -272,7 +260,7 @@ const handleServerConnection = (socket) => {
 
     socket.on('start',start)
 
-    socket.on('end', handleEnd)
+    socket.on('end', () => handleEnd(socket))
 
     socket.on('error', handleError);
 }
@@ -306,7 +294,6 @@ const handleReady = () => {
 //TODO: check if there is a problem that I'm ending the connection only after all of my connections ended
 const handleGoodbye = () => {
     decreaseNumOfSockets()
-
     if (numOfSockets === 0) {
         socketList.forEach(socket => socket.end())
         log(`final string: ${stringReplica}`)
@@ -341,7 +328,7 @@ const createConnection = (port, host, callback) => {
  * handles the error event when recieving from clients
  * @param err
  */
-const handleClientError = (err) => {
+const handleClientError = (err, id) => {
     handleError(err, `got error on client id ${id} port ${port}`)
 }
 
@@ -387,7 +374,7 @@ const connectToServer = (id, host, port) => {
         handleData(socket, data)
     })
 
-    socket.on('error', handleClientError)
+    socket.on('error', (err) => handleClientError(err,id))
 
     socket.on('end', () => console.log('closing connection with client ', id))
 
@@ -420,6 +407,7 @@ const connectClients = (clientList) => {
  * main function, starts the event loop after 10 seconds and the goodbye after 30 seconds
  */
 const start = () => {
+    debug(`${myId} starts`)
     setTimeout(eventLoop, 10000)
     setTimeout(goodbye, 30000)
 }
