@@ -9,9 +9,9 @@ let operationHistory = []
 const server = new net.Server()
 
 const fileName = process.argv[2]
+const tenOperation = false
 const data = fs.readFileSync(fileName).toString()
 const lines = data.split('\n').filter((str) => str.length > 0)
-
 const myId = lines[0]
 const port = lines[1]
 let stringReplica = lines[2]
@@ -20,6 +20,7 @@ const configurations = lines.slice(3)
 const operations = configurations.filter(line => line.startsWith("delete") || line.startsWith('insert'))
 const clients = configurations.filter(line => !(line.startsWith("delete") || line.startsWith('insert')))
 operations.forEach(operation => operationsList.push(operation))
+const numOfOperations = operationsList.length
 clients.forEach(client => {
     const clientConfiguration = client.split(' ')
     clientList.push({
@@ -29,11 +30,28 @@ clients.forEach(client => {
     })
 })
 
+let numOfReady = 0
+
+let clientsConnectsToMe = clientList.filter((client) => client.id < myId).length
+let maxId = myId
+clientList.forEach(client => {
+    if (client.id > maxId){
+        maxId = client.id
+    }
+})
+
+const imMax = maxId === myId
+let maxSocket = null
+
 const log = (msg) => {
     console.log(`LOGGING INFO: ${msg}`)
 }
 const debug = (msg) => {
     console.log(`DEBUG: ${msg}`)
+}
+
+const jsonToBuffer = (json) => {
+    return Buffer.from(JSON.stringify(json) + "\n")
 }
 
 const mergeAlgorithm = (action, timeStamp, id) => {
@@ -55,6 +73,9 @@ const mergeAlgorithm = (action, timeStamp, id) => {
     operationHistory = operationHistory.slice(0, index)
     log(`Client ${myId} started merging, from time stamp ${timeStamp}, on ${stringReplica}`)
     operationsToPerform.forEach(op => {
+        debug('in merge algorithm')
+        console.log(op)
+        debug('merge finish finish')
         applyOperation(op.operation)
         log(`operation (${op.operation}, ${op.timeStamp}), string: ${stringReplica}`)
         op.updatedString = stringReplica
@@ -76,6 +97,9 @@ const handleData = (socket, data) => {
         const timeStamp = parsedData['timeStamp']
         const action = parsedData['operation']
         const id = parsedData['id']
+        debug('before')
+        console.log(parsedData)
+        console.log(data.toString())
         log(`Client ${myId} received an update operation (${action}, ${timeStamp}) from client ${id}`)
         myTimeStamp = Math.max(myTimeStamp, timeStamp)
         myTimeStamp++
@@ -90,11 +114,21 @@ const handleData = (socket, data) => {
         }
     }
 
-    if (data.toString().startsWith("goodbye")) {
+    const stringData = data.toString()
+
+    if (stringData.startsWith("goodbye")) {
         handleGoodbye()
         return
     }
-    data = data.toString().split('\n').filter((str) => str.length > 0)
+    if (stringData.startsWith("ready")) {
+        handleReady()
+        return
+    }
+    if (stringData.startsWith("start")) {
+        start()
+        return
+    }
+    data = stringData.split('\n').filter((str) => str.length > 0)
     data.map(_handleData)
 }
 
@@ -102,17 +136,30 @@ const createServer = (server) => {
     server.listen(port, () => console.log(`hello world on port ${port}`))
 
     server.on('connection', (socket) => {
+        clientsConnectsToMe--;
+        if (clientsConnectsToMe === 0){
+            if(imMax){
+
+            }else{
+                debug(`${myId} is ready`)
+                let id = myId
+                maxSocket.write(`ready ${myId}`)
+            }
+        }
         numOfSockets++;
         socketList.push(socket)
-        console.log(`a new connection from socket ${socket}`)
-        operationHistory.forEach(({operation, timeStamp, stringReplica, id}) => {
-            if(id === myId){
-                const data = {operation, timeStamp, id}
-                socket.write(Buffer.from(JSON.stringify(data) + "\n"))
-            }
-        })
+        // operationHistory.forEach(({operation, timeStamp, stringReplica, id}) => {
+        //     if(id === myId){
+        //         const data = {operation, timeStamp, id}
+        //         socket.write(Buffer.from(JSON.stringify(data) + "\n"))
+        //     }
+        // })
         socket.on('data', (data) => {
             handleData(socket, data)
+        })
+
+        socket.on('start', () =>{
+            start()
         })
 
         socket.on('end', () => {
@@ -129,6 +176,8 @@ const createServer = (server) => {
 const applyOperation = (operation) => {
     const action = operation !== undefined ? operation.split(' ') : ''
     const op = action[0]
+    debug('in apply operation')
+    console.log(operation)
 
     switch (op) {
         case "insert": {
@@ -155,17 +204,37 @@ const applyOperation = (operation) => {
 
 const eventLoop = async () => {
     const handleOperation = async (operation) => {
+        console.log(operation)
         applyOperation(operation)
+        finishedOperations++
+        if(finishedOperations === numOfOperations){
+            log(`Client ${myId} finished his local string modifications`)
+        }
         myTimeStamp++
         const timeStamp = myTimeStamp
         const id = myId
         operationHistory.push({operation: operation, timeStamp: timeStamp, updatedString: stringReplica, id: id})
         const data = {operation, timeStamp, id}
-
-        socketList.forEach(socket => socket.write(Buffer.from(JSON.stringify(data) + "\n")))
+        // if(tenOperation && finishedOperations%10 === 0) {
+            socketList.forEach(socket => socket.write(jsonToBuffer(data)))
+        // }
     }
 
-    operationsList.forEach(operation => setTimeout(() => handleOperation(operation), Math.random() * 10000))
+    let finishedOperations = 0
+    console.log(operationsList)
+    operationsList.forEach(operation => {
+        console.log(operation)
+        setTimeout(() => handleOperation(operation), Math.random() * 10000)
+    })
+}
+
+const handleReady = () => {
+    console.log(`Client ${myId} is ready`)
+    numOfReady++
+    if(numOfReady === clientList.length){
+        socketList.forEach(socket => socket.write('start'))
+        start()
+    }
 }
 
 const handleGoodbye = () => {
@@ -174,6 +243,8 @@ const handleGoodbye = () => {
         socketList.forEach(socket => socket.end())
         console.log(`final string: ${stringReplica}`)
         log(`Client ${myId} is exiting`)
+        console.log("Operation history:")
+        operationHistory.forEach(history => console.log(history))
         process.exit(0)
     }
 }
@@ -186,24 +257,38 @@ const goodbye = async () => {
     handleGoodbye()
 }
 
+const connectClients = (clientList) => {
+    clientList.forEach(({id, host, port}) => {
+        if (myId < id) {
+            let socket = undefined;
+            socket = net.createConnection(port, host, () => console.log(`Connected to client ${host}:${port}`))
+            socket.on('data', (data) => {
+                handleData(socket, data)
+            })
+            socket.on('error', (err) => {
+                console.log(`got error on client id ${id} port ${port} error: ${err.toString()}`)
+            })
+            socket.on('end', () => console.log('closing connection with client ', id))
+            numOfSockets++;
+            socketList.push(socket)
+            if(!imMax && maxId === id){
+                maxSocket = socket
+                if(clientsConnectsToMe === 0) {
+                    let id = myId
+                    socket.write(`ready ${myId}`)
+                    debug(`${myId} ready`)
+                }
+            }
+        }
+    })
+}
+
+const start = () => {
+    setTimeout(eventLoop, 10000)
+    setTimeout(goodbye, 30000)
+}
+
 createServer(server)
 
-clientList.forEach(({id, host, port}) => {
-    if (myId < id) {
-        let socket = undefined;
-        socket = net.createConnection(port, host, () => console.log(`Connected to client ${host}:${port}`))
-        socket.on('data', (data) => {
-            handleData(socket, data)
-        })
-        socket.on('error', (err) => {
-            console.log(`got error on client id ${id} port ${port} error: ${err.toString()}`)
-        })
-        socket.on('end', () => console.log('closing connection with client ', id))
-        numOfSockets++;
-        socketList.push(socket)
-    }
-})
+connectClients(clientList)
 
-setTimeout(eventLoop, 10000)
-
-setTimeout(goodbye, 30000)
