@@ -11,7 +11,7 @@ const server = new net.Server()
 const fileName = process.argv[2]
 const tenOperation = false
 const data = fs.readFileSync(fileName).toString()
-const lines = data.split('\n').filter((str) => str.length > 0)
+const lines = data.split('\r\n').filter((str) => str.length > 0)
 const myId = lines[0]
 const port = lines[1]
 let stringReplica = lines[2]
@@ -47,6 +47,12 @@ clientList.forEach(checkMinMaxId)
 const imMax = maxId === myId
 let maxSocket = null
 
+const timeStampMap = new Map();
+clientList.forEach(client => timeStampMap.set(client.id,0))
+timeStampMap.set(myId,0)
+
+let minTimeStamp = -1;
+
 const log = (msg) => {
     console.log(`LOGGING INFO: ${msg}`)
 }
@@ -80,6 +86,23 @@ const writeGoodbye = (socket) => {
     socket.write(`goodbye ${myId}`)
 }
 
+const updateMinTimeStampAndNotifyIfChanged = () => {
+    let changed =false
+
+    // find min timestamp in map
+    let minTimeStampInMap = myTimeStamp
+    for (let value of timeStampMap.values()){
+       if (value<minTimeStampInMap)
+           minTimeStampInMap=value
+    }
+
+    // check if is bigger then the current minimum known timeStamp
+    if (minTimeStampInMap>minTimeStamp){
+        minTimeStamp = minTimeStampInMap
+        changed=true
+    }
+    return changed
+}
 
 const applyOperation = (operation) => {
     const action = operation !== undefined ? operation.split(' ') : ''
@@ -119,6 +142,8 @@ const eventLoop = async () => {
         const timeStamp = myTimeStamp
         const id = myId
         operationHistory.push({operation: operation, timeStamp: timeStamp, updatedString: stringReplica, id: id})
+        timeStampMap.set(id,timeStamp)
+        clearHistoryIfNeeded()
         const data = {operation, timeStamp, id}
         socketList.forEach(socket => writeToData(socket, jsonToBuffer(data)))
     }
@@ -169,6 +194,7 @@ const handleData = (socket, data) => {
         const timeStamp = parsedData['timeStamp']
         const action = parsedData['operation']
         const id = parsedData['id']
+
         log(`Client ${myId} received an update operation (${action}, ${timeStamp}) from client ${id}`)
         myTimeStamp = Math.max(myTimeStamp, timeStamp)
         myTimeStamp++
@@ -181,6 +207,9 @@ const handleData = (socket, data) => {
             applyOperation(action)
             operationHistory.push({operation: action, timeStamp: timeStamp, updatedString: stringReplica, id: id})
         }
+
+        timeStampMap.set(parseInt(id),parseInt(timeStamp))
+        clearHistoryIfNeeded()
     }
 
     const stringData = data.toString()
@@ -199,6 +228,24 @@ const handleData = (socket, data) => {
     }
     data = stringData.split('\n').filter((str) => str.length > 0)
     data.map(_handleData)
+}
+
+const clearHistoryIfNeeded = () => {
+    const needToClear  = updateMinTimeStampAndNotifyIfChanged()
+    if (needToClear){
+        // TODO : add the required print that specified in the assignment
+        cleanOperationHistory()
+    }
+}
+
+const cleanOperationHistory = () =>{
+    operationHistory = operationHistory.filter(op => {
+        let needToRemoveOp = op.timeStamp >= minTimeStamp
+        if (needToRemoveOp){
+            log(`Client ${myId} removed operation (${op.operation},${op.timeStamp}) from storage`)
+        }
+        return needToRemoveOp
+    })
 }
 
 const handleEnd = (socket) => {
