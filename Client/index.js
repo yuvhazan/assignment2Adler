@@ -6,6 +6,15 @@ const socketList = []
 let numOfSockets = 1
 let myTimeStamp = 0
 let operationHistory = []
+
+//TODO:check how we get the threshold size (as a command line argument or somehow else)
+const threshold = 10 // will probably be 1 or 10 (can be anything > 0)
+
+// The local updates will be saved here
+// When we reach the threshold size we send all the local updates to all other clients
+// Then , we reset this list to be empty again
+let localUpdates = []
+
 const server = new net.Server()
 
 const fileName = process.argv[2]
@@ -86,23 +95,7 @@ const writeGoodbye = (socket) => {
     socket.write(`goodbye ${myId}`)
 }
 
-const updateMinTimeStampAndNotifyIfChanged = () => {
-    let changed =false
 
-    // find min timestamp in map
-    let minTimeStampInMap = myTimeStamp
-    for (let value of timeStampMap.values()){
-       if (value<minTimeStampInMap)
-           minTimeStampInMap=value
-    }
-
-    // check if is bigger then the current minimum known timeStamp
-    if (minTimeStampInMap>minTimeStamp){
-        minTimeStamp = minTimeStampInMap
-        changed=true
-    }
-    return changed
-}
 
 const applyOperation = (operation) => {
     const action = operation !== undefined ? operation.split(' ') : ''
@@ -135,9 +128,6 @@ const eventLoop = async () => {
     const handleOperation = async (operation) => {
         applyOperation(operation)
         finishedOperations++
-        if(finishedOperations === numOfOperations){
-            log(`Client ${myId} finished his local string modifications`)
-        }
         myTimeStamp++
         const timeStamp = myTimeStamp
         const id = myId
@@ -145,13 +135,35 @@ const eventLoop = async () => {
         timeStampMap.set(id,timeStamp)
         clearHistoryIfNeeded()
         const data = {operation, timeStamp, id}
-        socketList.forEach(socket => writeToData(socket, jsonToBuffer(data)))
+        localUpdates.push (data)
+        const finishedLocalStringModifications = (finishedOperations === numOfOperations)
+        if(finishedLocalStringModifications){
+            log(`Client ${myId} finished his local string modifications`)
+        }
+        if(localUpdates.length === threshold || finishedLocalStringModifications) {
+            sendAllSavedOperationsAndReset()
+        }
     }
 
     let finishedOperations = 0
     operationsList.forEach(operation => {
         setTimeout(() => handleOperation(operation), Math.random() * 10000)
     })
+}
+
+/**
+ * When the localUpdates list is full (exceeded threshold size) or we finished our local string modification
+ * We will send all the saved local operations to all other clients and then reset this list
+ *
+ * Will be called only from handleOperation after the above condition was checked
+ */
+const sendAllSavedOperationsAndReset = () =>{
+    localUpdates.forEach(data => {
+        socketList.forEach(socket => {
+            writeToData(socket, jsonToBuffer(data))
+        })
+    })
+    localUpdates = []
 }
 
 const mergeAlgorithm = (action, timeStamp, id) => {
@@ -178,14 +190,14 @@ const mergeAlgorithm = (action, timeStamp, id) => {
         op.updatedString = stringReplica
         operationHistory.push(op)
     })
-    log(`Client ${myId} ended merging with string ${stringReplica}, on timestamp ${operationHistory[operationHistory.length - 1].timeStamp}
-`)
+    log(`Client ${myId} ended merging with string ${stringReplica}, on timestamp ${operationHistory[operationHistory.length - 1].timeStamp}`)
 }
 
 const updateStringReplica = (newString) => {
-    log(`before change ${stringReplica}`)
+    // TODO : is before and after change prints are needed?
+    // log(`before change ${stringReplica}`)
     stringReplica = newString
-    log(`after change ${stringReplica}`)
+    // log(`after change ${stringReplica}`)
 }
 
 const handleData = (socket, data) => {
@@ -230,14 +242,45 @@ const handleData = (socket, data) => {
     data.map(_handleData)
 }
 
+/**
+ * Updates the minimum timeStamp for the clients
+ * checking if it is changed and return accordingly
+ *
+ * @returns {boolean} pointing if the minimum has changed
+ */
+const updateMinTimeStampAndNotifyIfChanged = () => {
+    let changed =false
+
+    // find min timestamp in map
+    let minTimeStampInMap = myTimeStamp
+    for (let value of timeStampMap.values()){
+        if (value<minTimeStampInMap)
+            minTimeStampInMap=value
+    }
+
+    // check if is bigger then the current minimum known timeStamp
+    if (minTimeStampInMap>minTimeStamp){
+        minTimeStamp = minTimeStampInMap
+        changed=true
+    }
+    return changed
+}
+
+/**
+ * Updates the minimum timeStamp for all clients and check if it changed.
+ * If so, cleaning some useless data in operationHistory
+ */
 const clearHistoryIfNeeded = () => {
     const needToClear  = updateMinTimeStampAndNotifyIfChanged()
     if (needToClear){
-        // TODO : add the required print that specified in the assignment
         cleanOperationHistory()
     }
 }
 
+/**
+ * will be called only from clearHistoryIfNeeded
+ * removes all operations that are no longer needed in the operationHistory list
+ */
 const cleanOperationHistory = () =>{
     operationHistory = operationHistory.filter(op => {
         let needToRemoveOp = op.timeStamp >= minTimeStamp
@@ -274,6 +317,7 @@ const checkLastClientConnect = () => {
         if(imMax){
             // TODO: check what to do if it is the last connection of the max ID
         }else{
+            // TODO: remove next line DEBUG message
             debug(`${myId} is ready`)
             writeReady(maxSocket)
         }
@@ -313,6 +357,7 @@ const handleServerConnection = (socket) => {
 }
 
 const createServer = (server) => {
+    // TODO: remove/change next line hello world message
     server.listen(port, () => console.log(`hello world on port ${port}`))
     server.on('connection', handleServerConnection)
 }
@@ -325,6 +370,7 @@ const createServer = (server) => {
  * checks if all clients are ready, if they are sending start to all the clients, and starting myself
  */
 const handleReady = () => {
+    // TODO: remove next line DEBUG message
     debug(`Client ${myId} is ready`)
     increaseNumOfReady()
 
@@ -400,6 +446,7 @@ const updateMaxSocket = (socket) => {
     // TODO: what is this if? checks if im the lowest one?
     if(clientsConnectsToMe === 0) {
         writeReady(socket)
+        // TODO: remove next line DEBUG message
         debug(`${myId} ready`)
     }
 }
@@ -415,6 +462,7 @@ const connectToServer = (id, host, port) => {
 
     let socket = undefined;
 
+    // TODO : remove (if needed ) the next line print whe we get a connection
     socket = createConnection(port, host, () => console.log(`Connected to client ${host}:${port}`))
 
     socket.on('data', (data) => {
@@ -454,6 +502,7 @@ const connectClients = (clientList) => {
  * main function, starts the event loop after 10 seconds and the goodbye after 30 seconds
  */
 const start = () => {
+    // TODO: remove next line DEBUG message
     debug(`${myId} starts`)
     setTimeout(eventLoop, 10000)
     setTimeout(goodbye, 30000)
