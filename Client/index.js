@@ -22,7 +22,7 @@ const data = fs.readFileSync(fileName).toString()
 const isWindowsOS = false
 const delimiter = isWindowsOS ? '\r\n' : '\n' // on windows '\r\n' on unix/macosX '\n'
 const lines = data.split(delimiter).filter((str) => str.length > 0)
-const myId = lines[0]
+const myId = parseInt(lines[0])
 const port = lines[1]
 let stringReplica = lines[2]
 const originString = stringReplica
@@ -402,6 +402,7 @@ const handleGoodbye = () => {
         socketList.forEach(socket => socket.end())
         debug(`final string: ${stringReplica}`)
         log(`Client ${myId} is exiting`)
+        console.log(timeStampMap)
         process.exit(0)
     }
 }
