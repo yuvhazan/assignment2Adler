@@ -100,7 +100,11 @@ const writeGoodbye = (socket) => {
     socket.write(`goodbye ${myId}`)
 }
 
-
+/**
+ * Receives an operation (local operation from the input file or update operation from another client)
+ * and apply the required modification on the local copy of the string (stringReplica)
+ * @param operation the operation to apply (example -> "insert x 8")
+ */
 const applyOperation = (operation) => {
     const action = operation !== undefined ? operation.split(' ') : ''
     const op = action[0]
@@ -122,6 +126,7 @@ const applyOperation = (operation) => {
             return
         }
         default: {
+            // This should not happen
             error('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx oi vavoi XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')
 
         }
@@ -227,7 +232,32 @@ const updateStringReplica = (newString) => {
     stringReplica = newString
 }
 
+/**
+ * Handling received data from other client
+ *
+ * @param socket -> The socket that sent us the data to handle
+ * @param data -> The data to handle. which may be one of the following options:
+ * 1. Operation Data - meaning that we received an operation to perform on our stringReplica
+ *      In that case we will be forwarded to _handleData function
+ * 2. Ready data - meaning that a client that connected to me reported that he is ready
+ *     Only the maxId should receive this 'Ready' data
+ * 3. Goodbye - meaning that a client that connected to me is finished and notify that he is disconnecting from me
+ * 4. Start - The max Id client is the only one that sends Start message. the Start message notifying all the other
+ *    clients that everyone is ready to start. this message will triger the clients to stary applying modifications
+ *    on the string
+ */
 const handleData = (socket, data) => {
+    /**
+     * Will only be called from handleData, and only when the data is operation data
+     * Handle string modification data
+     * Will handle the following:
+     * 1. apply modifications on the stringReplica
+     * 2. will apply the merge algorithm in case that is needed
+     * 3. will update the timeStamp map
+     *
+     * @param operation - operation to perform on the stringReplica
+     * @private
+     */
     const _handleData = (operation) => {
         const parsedData = JSON.parse(operation)
         const timeStamp = parsedData['timeStamp']
@@ -249,25 +279,32 @@ const handleData = (socket, data) => {
 
         updateTimeStampMap(parseInt(id), parseInt(timeStamp))
         clearHistoryIfNeeded()
-    }
+    } // end _handleData
 
     const stringData = data.toString()
 
+    // goodbye data
     if (stringData.startsWith("goodbye")) {
         handleGoodbye()
         return
     }
+
+    // goodbye data
     if (stringData.startsWith("ready")) {
         handleReady()
         return
     }
+
+    // start data
     if (stringData.startsWith("start")) {
         start()
         return
     }
     data = stringData.split('\n').filter((str) => str.length > 0)
+
+    // operation(s) data
     data.map(_handleData)
-}
+} // end handleData
 
 /**
  * Updates the minimum timeStamp for the clients
