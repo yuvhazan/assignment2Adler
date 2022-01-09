@@ -7,14 +7,13 @@ let numOfSockets = 1
 let myTimeStamp = 0
 let operationHistory = []
 
-const threshold = 1 // will probably be 1 or 10 (can be anything > 0)
-
+const threshold = 10 // will probably be 1 or 10 (can be anything > 0)
+let server = null
 // The local updates will be saved here
 // When we reach the threshold size we send all the local updates to all other clients
 // Then , we reset this list to be empty again
 let localUpdates = []
 const debugFlag = false
-const server = new net.Server()
 
 const fileName = process.argv[2]
 const data = fs.readFileSync(fileName).toString()
@@ -131,8 +130,8 @@ const applyOperation = (operation) => {
 
 const eventLoop = async () => {
     /**
-     * will be claled only on the local operations.
-     * 1. apply opertaion on the string
+     * will be called only on the local operations.
+     * 1. apply operation on the string
      * 2. increased finished operations
      * 3. increase my time stamp
      * 4. push to history the new operation which consists of: operation, myTimeStamp, stringReplice (after update), myId
@@ -185,6 +184,19 @@ const sendAllSavedOperationsAndReset = () => {
     localUpdates = []
 }
 
+/**
+ * enters this funciton ONLY when need to merge. We don't check here the condition to merge.
+ *
+ * 1. find the the index to insert the new action
+ * 2. get the stringReplica to work on
+ * 3. create an arrays of operation to perform, which is the new action, and all the operations with index greater that we found
+ * 4. get the operationHistory below index
+ * 5. go over all operations that we found in 3., apply them and add them to the operationHistory we found in 4
+ *
+ * @param action the new action to merge
+ * @param timeStamp the new action timestamp
+ * @param id the id of the sender
+ */
 const mergeAlgorithm = (action, timeStamp, id) => {
     let index = operationHistory.findIndex(operation => operation.timeStamp >= timeStamp)
     while (operationHistory[index].timeStamp === timeStamp) {
@@ -327,6 +339,10 @@ const decreaseClientsConnection = () => {
     clientsConnectsToMe--
 }
 
+/**
+ * checks if it was the last client that I am waiting for. If it is, and I am not the maxId, then send that I'm ready to
+ * run to the maxSocket
+ */
 const checkLastClientConnect = () => {
     if (clientsConnectsToMe === 0 && !imMax) {
         debug(`${myId} is ready`)
@@ -350,6 +366,16 @@ const increaseNumOfReady = () => {
     numOfReady++
 }
 
+/**
+ * we need to remember that we are waiting to all the clients with id lower than me to connect to me before
+ * we send 'ready' to the maxId. Also we remember how many sockets we currently have and add the socket to socketList
+ * 1. decreases the number of clients that we are waiting to conenct to us
+ * 2. check if it was the last client we are waiting for
+ * 3. increase numOfSockets that are connected to me
+ * 4. add socekt to socketList
+ * 5. register to events: 'data', 'end' and 'error' (the only events that module net of node supports. Don't add events!)
+ * @param socket the socket that connected to me
+ */
 const handleServerConnection = (socket) => {
     decreaseClientsConnection();
 
@@ -363,14 +389,18 @@ const handleServerConnection = (socket) => {
         handleData(socket, data)
     })
 
-    socket.on('start', start)
-
     socket.on('end', () => handleEnd(socket))
 
     socket.on('error', handleError);
 }
 
-const createServer = (server) => {
+/**
+ * creates a server of 'net' module and saves it in the 'server' global variables
+ * make the server listen on the port that was given and parsed from the txt file
+ * register to a 'connection' event.
+ */
+const createServer = () => {
+    server = new net.Server()
     server.listen(port, () => debug(`hello world on port ${port}`))
     server.on('connection', handleServerConnection)
 }
@@ -394,7 +424,8 @@ const handleReady = () => {
 
 /**
  * decreases the num of sockets that the client is connected to,
- * and if it was the last one it kills the connection with all the sockets and ends
+ * and if it was the last one it kills the connection with all the sockets and ends.
+ * closes the server before exiting
  */
 const handleGoodbye = () => {
     decreaseNumOfSockets()
@@ -402,7 +433,7 @@ const handleGoodbye = () => {
         socketList.forEach(socket => socket.end())
         debug(`final string: ${stringReplica}`)
         log(`Client ${myId} is exiting`)
-        console.log(timeStampMap)
+        server.close()
         process.exit(0)
     }
 }
@@ -507,7 +538,7 @@ const start = () => {
     setTimeout(goodbye, 30000)
 }
 
-createServer(server)
+createServer()
 
 connectClients(clientList)
 
