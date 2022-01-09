@@ -7,20 +7,21 @@ let numOfSockets = 1
 let myTimeStamp = 0
 let operationHistory = []
 
-//TODO:check how we get the threshold size (as a command line argument or somehow else)
-const threshold = 10 // will probably be 1 or 10 (can be anything > 0)
+const threshold = 1 // will probably be 1 or 10 (can be anything > 0)
 
 // The local updates will be saved here
 // When we reach the threshold size we send all the local updates to all other clients
 // Then , we reset this list to be empty again
 let localUpdates = []
-const debugFlag = true
+const debugFlag = false
 const server = new net.Server()
 
 const fileName = process.argv[2]
-const tenOperation = false
 const data = fs.readFileSync(fileName).toString()
-const lines = data.split('\n').filter((str) => str.length > 0)
+
+const isWindowsOS = false
+const delimiter = isWindowsOS ? '\r\n' : '\n' // on windows '\r\n' on unix/macosX '\n'
+const lines = data.split(delimiter).filter((str) => str.length > 0)
 const myId = lines[0]
 const port = lines[1]
 let stringReplica = lines[2]
@@ -43,8 +44,6 @@ let numOfReady = 0
 
 let clientsConnectsToMe = clientList.filter((client) => client.id < myId).length
 let maxId = myId
-// TODO: I added this one because it can help us with the condition when we
-//  need to know if we are the minimum id
 let minId = myId
 
 const checkMinMaxId = (client) => {
@@ -71,7 +70,7 @@ const log = (msg) => {
     console.log(`LOGGING INFO: ${msg}`)
 }
 const debug = (msg) => {
-    if(debugFlag) {
+    if (debugFlag) {
         console.log(`DEBUG: ${msg}`)
     }
 }
@@ -124,7 +123,7 @@ const applyOperation = (operation) => {
             return
         }
         default: {
-            console.log('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx oi vavoi XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')
+            error('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx oi vavoi XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')
 
         }
     }
@@ -160,7 +159,6 @@ const eventLoop = async () => {
         if (finishedLocalStringModifications) {
             log(`Client ${myId} finished his local string modifications`)
         }
-        //TODO: verify with yuval: so threshold == 1 is the base case we were testing until now?
         if (localUpdates.length === threshold || finishedLocalStringModifications) {
             sendAllSavedOperationsAndReset()
         }
@@ -330,13 +328,9 @@ const decreaseClientsConnection = () => {
 }
 
 const checkLastClientConnect = () => {
-    if (clientsConnectsToMe === 0) {
-        if (imMax) {
-            // TODO: check what to do if it is the last connection of the max ID
-        } else {
-            debug(`${myId} is ready`)
-            writeReady(maxSocket)
-        }
+    if (clientsConnectsToMe === 0 && !imMax) {
+        debug(`${myId} is ready`)
+        writeReady(maxSocket)
     }
 }
 
@@ -402,7 +396,6 @@ const handleReady = () => {
  * decreases the num of sockets that the client is connected to,
  * and if it was the last one it kills the connection with all the sockets and ends
  */
-//TODO: check if there is a problem that I'm ending the connection only after all of my connections ended
 const handleGoodbye = () => {
     decreaseNumOfSockets()
     if (numOfSockets === 0) {
@@ -442,14 +435,6 @@ const handleClientError = (err, id) => {
     handleError(err, `got error on client id ${id} port ${port}`)
 }
 
-/**
- * returns if the id is the maxId and that the client is the one with max Id
- * @param id id to check
- * @returns {boolean} true if id is the maxId and the client is the maxId
- */
-//TODO: check if there is an option that the imMax will be true when calling it from connectToServer
-const checkMaxId = (id) => !imMax && maxId === id
-
 
 /**
  * updates the maxSocket to be the socket that is given.
@@ -460,8 +445,7 @@ const checkMaxId = (id) => !imMax && maxId === id
  */
 const updateMaxSocket = (socket) => {
     maxSocket = socket
-    // TODO: what is this if? checks if im the lowest one?
-    if (clientsConnectsToMe === 0) {
+    if (minId === myId) {
         writeReady(socket)
         debug(`${myId} ready`)
     }
@@ -492,7 +476,7 @@ const connectToServer = (id, host, port) => {
 
     addSocketToList(socket)
 
-    const isMaxId = checkMaxId(id)
+    const isMaxId = maxId === id
 
     if (isMaxId) {
         updateMaxSocket(socket)
