@@ -20,7 +20,7 @@ const server = new net.Server()
 const fileName = process.argv[2]
 const tenOperation = false
 const data = fs.readFileSync(fileName).toString()
-const lines = data.split('\r\n').filter((str) => str.length > 0)
+const lines = data.split('\n').filter((str) => str.length > 0)
 const myId = lines[0]
 const port = lines[1]
 let stringReplica = lines[2]
@@ -48,8 +48,8 @@ let maxId = myId
 let minId = myId
 
 const checkMinMaxId = (client) => {
-    maxId = client.id > maxId ? client.id  : maxId
-    minId = client.id < minId ? client.id  : minId
+    maxId = client.id > maxId ? client.id : maxId
+    minId = client.id < minId ? client.id : minId
 }
 
 clientList.forEach(checkMinMaxId)
@@ -57,8 +57,13 @@ const imMax = maxId === myId
 let maxSocket = null
 
 const timeStampMap = new Map();
-clientList.forEach(client => timeStampMap.set(client.id,0))
-timeStampMap.set(myId,0)
+
+const updateTimeStampMap = (id, timeStampValue) => {
+    timeStampMap.set(id, timeStampValue)
+}
+
+clientList.forEach(client => updateTimeStampMap(client.id, 0))
+updateTimeStampMap(myId, 0)
 
 let minTimeStamp = -1;
 
@@ -96,7 +101,6 @@ const writeGoodbye = (socket) => {
 }
 
 
-
 const applyOperation = (operation) => {
     const action = operation !== undefined ? operation.split(' ') : ''
     const op = action[0]
@@ -125,22 +129,37 @@ const applyOperation = (operation) => {
 }
 
 const eventLoop = async () => {
+    /**
+     * will be claled only on the local operations.
+     * 1. apply opertaion on the string
+     * 2. increased finished operations
+     * 3. increase my time stamp
+     * 4. push to history the new operation which consists of: operation, myTimeStamp, stringReplice (after update), myId
+     * 5. set new timestamp in timeStampMap for myId
+     * 6. clear history if needed
+     * 7. push new data to localUpdates
+     * 8. check if finished all the local modifications
+     * 9. check if needed to send update to clients
+     * @param operation operation to handle
+     * @returns {Promise<void>}
+     */
     const handleOperation = async (operation) => {
         applyOperation(operation)
         finishedOperations++
-        myTimeStamp++
+        increaseMyTimeStamp()
         const timeStamp = myTimeStamp
         const id = myId
         operationHistory.push({operation: operation, timeStamp: timeStamp, updatedString: stringReplica, id: id})
-        timeStampMap.set(id,timeStamp)
+        updateTimeStampMap(id, timeStamp)
         clearHistoryIfNeeded()
         const data = {operation, timeStamp, id}
-        localUpdates.push (data)
+        localUpdates.push(data)
         const finishedLocalStringModifications = (finishedOperations === numOfOperations)
-        if(finishedLocalStringModifications){
+        if (finishedLocalStringModifications) {
             log(`Client ${myId} finished his local string modifications`)
         }
-        if(localUpdates.length === threshold || finishedLocalStringModifications) {
+        //TODO: verify with yuval: so threshold == 1 is the base case we were testing until now?
+        if (localUpdates.length === threshold || finishedLocalStringModifications) {
             sendAllSavedOperationsAndReset()
         }
     }
@@ -157,7 +176,7 @@ const eventLoop = async () => {
  *
  * Will be called only from handleOperation after the above condition was checked
  */
-const sendAllSavedOperationsAndReset = () =>{
+const sendAllSavedOperationsAndReset = () => {
     localUpdates.forEach(data => {
         socketList.forEach(socket => {
             writeToData(socket, jsonToBuffer(data))
@@ -171,8 +190,7 @@ const mergeAlgorithm = (action, timeStamp, id) => {
     while (operationHistory[index].timeStamp === timeStamp) {
         if (id > operationHistory[index].id) {
             index++
-        }
-        else break
+        } else break
     }
     stringReplica = index !== 0 ? operationHistory[index - 1].updatedString : originString
 
@@ -209,7 +227,7 @@ const handleData = (socket, data) => {
 
         log(`Client ${myId} received an update operation (${action}, ${timeStamp}) from client ${id}`)
         myTimeStamp = Math.max(myTimeStamp, timeStamp)
-        myTimeStamp++
+        increaseMyTimeStamp()
         const lastOperation = operationHistory[operationHistory.length - 1]
         if (lastOperation !== undefined &&
             (timeStamp < lastOperation.timeStamp ||
@@ -220,7 +238,7 @@ const handleData = (socket, data) => {
             operationHistory.push({operation: action, timeStamp: timeStamp, updatedString: stringReplica, id: id})
         }
 
-        timeStampMap.set(parseInt(id),parseInt(timeStamp))
+        updateTimeStampMap(parseInt(id), parseInt(timeStamp))
         clearHistoryIfNeeded()
     }
 
@@ -249,19 +267,19 @@ const handleData = (socket, data) => {
  * @returns {boolean} pointing if the minimum has changed
  */
 const updateMinTimeStampAndNotifyIfChanged = () => {
-    let changed =false
+    let changed = false
 
     // find min timestamp in map
     let minTimeStampInMap = myTimeStamp
-    for (let value of timeStampMap.values()){
-        if (value<minTimeStampInMap)
-            minTimeStampInMap=value
+    for (let value of timeStampMap.values()) {
+        if (value < minTimeStampInMap)
+            minTimeStampInMap = value
     }
 
     // check if is bigger then the current minimum known timeStamp
-    if (minTimeStampInMap>minTimeStamp){
+    if (minTimeStampInMap > minTimeStamp) {
         minTimeStamp = minTimeStampInMap
-        changed=true
+        changed = true
     }
     return changed
 }
@@ -271,8 +289,8 @@ const updateMinTimeStampAndNotifyIfChanged = () => {
  * If so, cleaning some useless data in operationHistory
  */
 const clearHistoryIfNeeded = () => {
-    const needToClear  = updateMinTimeStampAndNotifyIfChanged()
-    if (needToClear){
+    const needToClear = updateMinTimeStampAndNotifyIfChanged()
+    if (needToClear) {
         cleanOperationHistory()
     }
 }
@@ -281,13 +299,13 @@ const clearHistoryIfNeeded = () => {
  * will be called only from clearHistoryIfNeeded
  * removes all operations that are no longer needed in the operationHistory list
  */
-const cleanOperationHistory = () =>{
+const cleanOperationHistory = () => {
     operationHistory = operationHistory.filter(op => {
-        let needToRemoveOp = op.timeStamp >= minTimeStamp
-        if (needToRemoveOp){
+        const needToKeepOp = op.timeStamp >= minTimeStamp
+        if (!needToKeepOp) {
             log(`Client ${myId} removed operation (${op.operation},${op.timeStamp}) from storage`)
         }
-        return needToRemoveOp
+        return needToKeepOp
     })
 }
 
@@ -295,8 +313,8 @@ const handleEnd = (socket) => {
     console.log(`Closing connection with client ${socket}`)
 }
 
-const handleError = (err, msg=null) => {
-    if (msg){
+const handleError = (err, msg = null) => {
+    if (msg) {
         error(msg)
     }
     error(e.stack)
@@ -313,10 +331,10 @@ const decreaseClientsConnection = () => {
 }
 
 const checkLastClientConnect = () => {
-    if (clientsConnectsToMe === 0){
-        if(imMax){
+    if (clientsConnectsToMe === 0) {
+        if (imMax) {
             // TODO: check what to do if it is the last connection of the max ID
-        }else{
+        } else {
             // TODO: remove next line DEBUG message
             debug(`${myId} is ready`)
             writeReady(maxSocket)
@@ -330,6 +348,10 @@ const addSocketToList = (socket) => {
 
 const increaseNumOfSockets = () => {
     numOfSockets++
+}
+
+const increaseMyTimeStamp = () => {
+    myTimeStamp++
 }
 
 const increaseNumOfReady = () => {
@@ -349,7 +371,7 @@ const handleServerConnection = (socket) => {
         handleData(socket, data)
     })
 
-    socket.on('start',start)
+    socket.on('start', start)
 
     socket.on('end', () => handleEnd(socket))
 
@@ -374,7 +396,7 @@ const handleReady = () => {
     debug(`Client ${myId} is ready`)
     increaseNumOfReady()
 
-    if(numOfReady === clientList.length){
+    if (numOfReady === clientList.length) {
         socketList.forEach(writeStart)
         start()
     }
@@ -392,6 +414,7 @@ const handleGoodbye = () => {
         log(`final string: ${stringReplica}`)
         log(`Client ${myId} is exiting`)
         //TODO: remove the print after finish debugging
+        console.log(operationHistory)
         process.exit(0)
     }
 }
@@ -444,7 +467,7 @@ const checkMaxId = (id) => !imMax && maxId === id
 const updateMaxSocket = (socket) => {
     maxSocket = socket
     // TODO: what is this if? checks if im the lowest one?
-    if(clientsConnectsToMe === 0) {
+    if (clientsConnectsToMe === 0) {
         writeReady(socket)
         // TODO: remove next line DEBUG message
         debug(`${myId} ready`)
@@ -469,7 +492,7 @@ const connectToServer = (id, host, port) => {
         handleData(socket, data)
     })
 
-    socket.on('error', (err) => handleClientError(err,id))
+    socket.on('error', (err) => handleClientError(err, id))
 
     socket.on('end', () => console.log('closing connection with client ', id))
 
@@ -479,7 +502,7 @@ const connectToServer = (id, host, port) => {
 
     const isMaxId = checkMaxId(id)
 
-    if(isMaxId){
+    if (isMaxId) {
         updateMaxSocket(socket)
     }
 }
