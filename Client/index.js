@@ -14,7 +14,7 @@ const threshold = 10 // will probably be 1 or 10 (can be anything > 0)
 // When we reach the threshold size we send all the local updates to all other clients
 // Then , we reset this list to be empty again
 let localUpdates = []
-
+const debugFlag = true
 const server = new net.Server()
 
 const fileName = process.argv[2]
@@ -71,7 +71,9 @@ const log = (msg) => {
     console.log(`LOGGING INFO: ${msg}`)
 }
 const debug = (msg) => {
-    console.log(`DEBUG: ${msg}`)
+    if(debugFlag) {
+        console.log(`DEBUG: ${msg}`)
+    }
 }
 
 FgRed = "\x1b[31m"
@@ -122,7 +124,7 @@ const applyOperation = (operation) => {
             return
         }
         default: {
-            console.log('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx oi vavoi XXXXXXXXXXXXXXXXXX')
+            console.log('xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx oi vavoi XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')
 
         }
     }
@@ -212,10 +214,7 @@ const mergeAlgorithm = (action, timeStamp, id) => {
 }
 
 const updateStringReplica = (newString) => {
-    // TODO : is before and after change prints are needed?
-    // log(`before change ${stringReplica}`)
     stringReplica = newString
-    // log(`after change ${stringReplica}`)
 }
 
 const handleData = (socket, data) => {
@@ -310,7 +309,7 @@ const cleanOperationHistory = () => {
 }
 
 const handleEnd = (socket) => {
-    console.log(`Closing connection with client ${socket}`)
+    debug(`Closing connection with client ${socket}`)
 }
 
 const handleError = (err, msg = null) => {
@@ -335,7 +334,6 @@ const checkLastClientConnect = () => {
         if (imMax) {
             // TODO: check what to do if it is the last connection of the max ID
         } else {
-            // TODO: remove next line DEBUG message
             debug(`${myId} is ready`)
             writeReady(maxSocket)
         }
@@ -379,8 +377,7 @@ const handleServerConnection = (socket) => {
 }
 
 const createServer = (server) => {
-    // TODO: remove/change next line hello world message
-    server.listen(port, () => console.log(`hello world on port ${port}`))
+    server.listen(port, () => debug(`hello world on port ${port}`))
     server.on('connection', handleServerConnection)
 }
 
@@ -392,7 +389,6 @@ const createServer = (server) => {
  * checks if all clients are ready, if they are sending start to all the clients, and starting myself
  */
 const handleReady = () => {
-    // TODO: remove next line DEBUG message
     debug(`Client ${myId} is ready`)
     increaseNumOfReady()
 
@@ -411,10 +407,8 @@ const handleGoodbye = () => {
     decreaseNumOfSockets()
     if (numOfSockets === 0) {
         socketList.forEach(socket => socket.end())
-        log(`final string: ${stringReplica}`)
+        debug(`final string: ${stringReplica}`)
         log(`Client ${myId} is exiting`)
-        //TODO: remove the print after finish debugging
-        console.log(operationHistory)
         process.exit(0)
     }
 }
@@ -469,7 +463,6 @@ const updateMaxSocket = (socket) => {
     // TODO: what is this if? checks if im the lowest one?
     if (clientsConnectsToMe === 0) {
         writeReady(socket)
-        // TODO: remove next line DEBUG message
         debug(`${myId} ready`)
     }
 }
@@ -485,8 +478,7 @@ const connectToServer = (id, host, port) => {
 
     let socket = undefined;
 
-    // TODO : remove (if needed ) the next line print whe we get a connection
-    socket = createConnection(port, host, () => console.log(`Connected to client ${host}:${port}`))
+    socket = createConnection(port, host, () => debug(`Connected to client ${host}:${port}`))
 
     socket.on('data', (data) => {
         handleData(socket, data)
@@ -494,7 +486,7 @@ const connectToServer = (id, host, port) => {
 
     socket.on('error', (err) => handleClientError(err, id))
 
-    socket.on('end', () => console.log('closing connection with client ', id))
+    socket.on('end', () => debug('closing connection with client ', id))
 
     increaseNumOfSockets()
 
@@ -525,7 +517,6 @@ const connectClients = (clientList) => {
  * main function, starts the event loop after 10 seconds and the goodbye after 30 seconds
  */
 const start = () => {
-    // TODO: remove next line DEBUG message
     debug(`${myId} starts`)
     setTimeout(eventLoop, 10000)
     setTimeout(goodbye, 30000)
