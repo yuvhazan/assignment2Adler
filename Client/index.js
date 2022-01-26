@@ -7,7 +7,7 @@ let numOfSockets = 1
 let myTimeStamp = 0
 let operationHistory = []
 
-const threshold = 10 // will probably be 1 or 10 (can be anything > 0)
+const threshold = 1 // will probably be 1 or 10 (can be anything > 0)
 let server = null
 // The local updates will be saved here
 // When we reach the threshold size we send all the local updates to all other clients
@@ -31,6 +31,7 @@ const clients = configurations.filter(line => !(line.startsWith("delete") || lin
 operations.forEach(operation => operationsList.push(operation))
 const numOfOperations = operationsList.length
 clients.forEach(client => {
+    console.log()
     const clientConfiguration = client.split(' ')
     clientList.push({
         id: parseInt(clientConfiguration[0]),
@@ -452,7 +453,6 @@ const createServer = () => {
 const handleReady = () => {
     debug(`Client ${myId} is ready`)
     increaseNumOfReady()
-
     if (numOfReady === clientList.length) {
         socketList.forEach(writeStart)
         start()
